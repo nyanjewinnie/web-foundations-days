@@ -1,0 +1,139 @@
+/* 1. Light theme colors */
+:root {
+    --bg-color: #f4f6f8;
+    --card-color: #ffffff;
+    --text-color: #222222;
+    --border-color: #cccccc;
+    --button-color: #2563eb;
+    --button-text: #ffffff;
+}
+
+/* 2. Dark theme colors */
+body.dark {
+    --bg-color: #181818;
+    --card-color: #252525;
+    --text-color: #f5f5f5;
+    --border-color: #555555;
+    --button-color: #3b82f6;
+    --button-text: #ffffff;
+}
+
+/* 3. General page styling */
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 30px 15px;
+    font-family: Arial, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    transition: background-color 0.3s, color 0.3s;
+}
+
+.container {
+    max-width: 650px;
+    margin: 0 auto;
+    padding: 25px;
+    background-color: var(--card-color);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+}
+
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 25px;
+}
+
+h1 {
+    font-size: 26px;
+    margin: 0;
+}
+
+/* 4. Label and text area */
+label {
+    display: block;
+    margin-bottom: 10px;
+    font-weight: bold;
+}
+
+textarea {
+    display: block;
+    width: 100%;
+    min-height: 160px;
+    padding: 12px;
+    font-family: inherit;
+    font-size: 16px;
+    color: var(--text-color);
+    background-color: var(--card-color);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    resize: vertical;
+}
+
+textarea:focus {
+    outline: 2px solid var(--button-color);
+}
+
+/* 5. Character and word counters */
+.counters {
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 10px 0 20px;
+}
+
+.counters p {
+    margin: 0;
+    font-size: 14px;
+}
+
+/* 6. Character counter warning classes */
+.warning {
+    color: orange;
+}
+
+.over {
+    color: red;
+    font-weight: bold;
+}
+
+/* 7. Button styling */
+button {
+    padding: 10px 16px;
+    border: none;
+    border-radius: 6px;
+    background-color: var(--button-color);
+    color: var(--button-text);
+    font-size: 14px;
+    cursor: pointer;
+}
+
+button:hover {
+    opacity: 0.85;
+}
+
+button:focus-visible {
+    outline: 2px solid var(--text-color);
+    outline-offset: 3px;
+}
+
+/* 8. Small screen styling */
+@media (max-width: 480px) {
+    .container {
+        padding: 18px;
+    }
+
+    h1 {
+        font-size: 22px;
+    }
+
+    header {
+        align-items: flex-start;
+    }
+}
