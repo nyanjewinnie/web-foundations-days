@@ -174,51 +174,77 @@ Constraint: `UNIQUE(event_id, seat_label)` prevents duplicate seat definitions f
 - One user can hold seats temporarily.
 - An order belongs to one user and can contain multiple ticket items in a full implementation.
 - An order can have multiple payment attempts, but each provider transaction reference must be unique.
-
 ### Preventing Double-Booking
 
-The database is the final authority for seat ownership. The application must not rely only on what the browser displays because two customers may request the same seat at nearly the same time.
+The relational database is the final authority for seat availability. The application must not rely on cached data or the seat status displayed in the browser because multiple customers may request the same seat simultaneously.
 
-When a seat is requested, the server starts a database transaction and locks the relevant seat row using a row-level lock, such as `SELECT ... FOR UPDATE`. It checks whether the seat is available and whether any existing hold has expired.
+**Seat-hold transaction:**
 
-If available, it creates a time-limited hold and updates the seat state before committing the transaction. A second transaction must wait for the lock and then sees that the seat is no longer available.
+1. The application begins a database transaction.
+2. It locks the requested seat row using `SELECT ... FOR UPDATE`.
+3. It checks the seat's current status and verifies whether any existing hold has expired.
+4. If the seat is available, it creates a temporary hold, records the expiry time, and changes the seat status to `held`.
+5. It commits the transaction. If the seat is already sold or held by another customer, it rolls back the transaction and returns `409 Conflict`.
 
-The database also enforces constraints that prevent duplicate active reservations or duplicate ticket issuance for the same event and seat. Seat holds expire automatically through a cleanup process, and the booking transaction checks expiry again before confirming an order.
+**How this prevents race conditions:**
 
-Only verified successful payment can turn a valid reservation into a confirmed sale. Payment callbacks are processed idempotently, and the system uses a consistent lock order to reduce deadlocks.
+Suppose customers A and B request the same seat at nearly the same time. Customer A obtains the row lock first. Customer B must wait until A's transaction finishes. After A commits the hold, B reads the updated seat status and cannot create another valid hold for that seat. Only one customer can successfully reserve it.
+
+**Database safeguards:**
+
+- Use a transaction for the availability check, hold creation, and seat-status update.
+- Enforce `UNIQUE(event_id, seat_label)` on the seats table to prevent duplicate seat records.
+- Enforce a database constraint or suitable partial unique index so that a seat cannot have multiple active holds.
+- Check hold expiry using the database's current time. A cleanup worker can release expired holds, but the booking transaction must also check expiry itself.
+- Use a consistent lock order and retry appropriate deadlock failures safely.
+
+**Payment and confirmation:**
+
+A successful seat hold is temporary and does not mean the ticket has been purchased. The customer must complete payment before the hold expires. The system verifies the payment provider's response and processes callbacks idempotently so that repeated notifications cannot issue duplicate tickets. A valid paid order is confirmed and the ticket is issued only once.
+
+If payment succeeds after a hold has expired, the system must follow a defined recovery process, such as attempting a safe re-reservation or initiating a refund. It must never sell the same seat twice.
 
 ## 5. Architecture
 
-```mermaid
+
 flowchart TD
-    U[Customers] --> CDN[CDN and WAF]
-    CDN --> LB[Load Balancer]
+    U[Customers] --> CDN[CDN]
+    CDN --> WAF[Web Application Firewall]
+    WAF --> RP[Reverse Proxy]
+    RP --> LB[Load Balancer]
+
     LB --> API1[Application Server 1]
     LB --> API2[Application Server 2]
-    API1 --> C[Cache]
-    API2 --> C
-    API1 --> DB[(Primary Database)]
+
+    API1 --> Redis[(Redis Cache)]
+    API2 --> Redis
+
+    API1 --> DB[(Primary Relational Database)]
     API2 --> DB
     DB --> RR[(Read Replica)]
-    API1 --> Q[Queue]
-    API2 --> Q
-    Q --> W[Workers]
-    API1 --> PAY[Payment Provider]
+
+    API1 --> MQ[Message Queue]
+    API2 --> MQ
+    MQ --> W[Background Workers]
     W --> DB
-```
+
+    API1 --> PAY[Payment Provider]
+    PAY --> API1
+
 
 ### Component Responsibilities
 
-- **CDN:** Serves static files close to users and reduces load on the application.
-- **WAF:** Filters suspicious or abusive web traffic.
-- **Load balancer:** Distributes requests across healthy application servers.
-- **Application servers:** Authenticate users, validate requests, manage holds, and create orders.
-- **Cache:** Speeds up event pages and non-authoritative availability views. It is never the final authority for whether a seat can be sold.
-- **Primary database:** Stores authoritative seat states, holds, orders, and payment records.
-- **Read replica:** Serves suitable read-heavy queries, such as event listings, while replication delay is taken into account.
-- **Queue:** Holds background work such as notifications, ticket delivery, and payment follow-up tasks.
-- **Workers:** Process queued jobs and retry temporary failures.
-- **Payment provider:** Processes customer payments and sends verified payment notifications.
+- **CDN:** Serves static assets close to customers and reduces repeated requests reaching the origin servers.
+- **Web Application Firewall (WAF):** Filters malicious traffic and helps protect against common web attacks.
+- **Reverse proxy:** Receives incoming HTTP requests, forwards them to the appropriate backend service, and can enforce request limits and routing rules.
+- **Load balancer:** Distributes requests across healthy application servers and removes unhealthy instances from rotation.
+- **Application servers:** Authenticate users, validate requests, coordinate seat holds and orders, and communicate with the database and payment provider.
+- **Redis cache:** Stores frequently requested event details and other suitable read-heavy data to reduce database load. Cached availability is only an estimate; the primary database decides whether a seat can be held or sold.
+- **Primary relational database:** Stores authoritative seat states, holds, orders, and payments. Transactions, row-level locks, and database constraints protect inventory from conflicting bookings.
+- **Read replica:** Serves appropriate read-heavy queries, such as event listings. Replication lag must be considered, and the replica must not decide whether a seat is available for purchase.
+- **Message queue:** Buffers asynchronous work, such as ticket delivery, notifications, and payment follow-up tasks, so temporary spikes do not overwhelm background services.
+- **Background workers:** Process queued jobs, retry temporary failures safely, and record their results.
+- **Payment provider:** Processes payments and sends payment notifications. The application verifies the notifications and handles retries idempotently.
 
 ### Surviving the Big Sale
 
